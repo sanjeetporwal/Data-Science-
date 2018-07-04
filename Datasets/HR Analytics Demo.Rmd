@@ -1,0 +1,258 @@
+---
+title: "Why Do People Leave and Who is Leaving?"
+output:
+  html_notebook: default
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+Before we get started to business, load libraries to be used first
+```{r}
+suppressWarnings(library(tidyverse,quietly = TRUE))
+suppressWarnings(library(corrplot,quietly = TRUE))
+suppressWarnings(library(stringr,quietly = TRUE))
+suppressWarnings(library(Hmisc,quietly = TRUE))
+```
+
+Now import the original dataset for exploring and analysis
+```{r}
+hr_analytics <- read_csv("HR_comma_sep.csv",col_names = TRUE)
+hr_analytics2 <- hr_analytics
+```
+A brief overview of the dataset
+```{r}
+head(hr_analytics,10)
+describe(hr_analytics)
+
+```
+
+Overview of the dataset:
+There are in total 10 variables included in the dataset and the variable "left" is the response indicating whether an employee had left the company or not
+The dataset contained in total 14,999 observations and each oberservation is a record of information about an employee.
+
+Definitions of each variable:
+satisfaction_level: indicates the level of the satisfaction for each employee collected from survey, 1 indicates the highest level of satisfaction;
+last_evaluation: the results of performance for each employee, 1 indicates the highest appraisal scores;
+number_project: the total number of projects an employee had been working on;
+average_monthly_hours: the average monthly working hours for each employee;
+time_spend_company: average number of hours an employee stays in company for each working day;
+Work_accident: binary, whether an employee had encounted accidents in workplace;
+left: the response variable, binary, indicates if the employee had left the company;
+promotion_last_5years: binary, whether the employee had been promoted in the past five years;
+sales: indicating the function/department the employees works for;
+salary: range of salary level, divided into groups of: low medium and high
+
+Graphic emploration of the data to answer the question: Who are leaving?
+
+Question 1: are the variables correlated?
+
+```{r}
+cor_matrix <- cor(select_if(hr_analytics,is.numeric))
+corrplot(cor_matrix,method = "number",mar = c(3,3,3,3))
+```
+
+For all the numerical variables, no high correlations found but something counter-intuitive is that the level of satisfaction is negatively related to left, although the number is 0.39
+
+
+What is the impact of each variable to the left variable?
+
+Before that, we need to convert left from numeric into factors
+```{r}
+hr_analytics <- hr_analytics%>%
+  mutate(left=as.factor(left))
+```
+
+Set up the themes for plotting
+```{r}
+suppressWarnings(library(ggthemr,quietly = TRUE))
+ggthemr('light')
+```
+
+Q1: How many people had left?
+```{r}
+left_vis <- hr_analytics%>%
+  ggplot(aes(x=left))+geom_bar(aes(fill=left))
+
+left_vis
+```
+
+
+
+Q2: Do employees that had low satisfaction level tend to leave?
+```{r}
+satis_level <- hr_analytics%>%
+  ggplot(aes(x=left,y=satisfaction_level))+geom_jitter(aes(color=left))
+
+satis_level
+
+satis_prob <- hr_analytics2%>%
+  ggplot(aes(x=satisfaction_level,y=left))+geom_point()+geom_smooth(method = "glm",method.args=list(family="binomial"),se=FALSE)
+
+satis_prob
+```
+
+Q3: is evaluation result impacting attrition?
+```{r}
+evaluation_results <- hr_analytics%>%
+  ggplot(aes(x=left,y=last_evaluation))+geom_jitter(aes(color=left))
+
+evaluation_results
+
+eval_left <- hr_analytics2%>%
+  ggplot(aes(x=last_evaluation,y=left))+geom_point(aes(color=as.factor(left)))+stat_smooth(method="glm",method.args = list(family="binomial"),se=FALSE)
+
+eval_left
+```
+
+Q4: do people work on more projects tend to leave?
+
+```{r}
+projects_retention <- hr_analytics%>%
+  ggplot(aes(x=left,y=number_project))+geom_jitter(aes(color=left))
+
+projects_retention
+
+projects_glm <- hr_analytics2%>%
+  ggplot(aes(x=number_project,y=left))+geom_point(aes(color=left))+stat_smooth(method="glm",
+                                                                               method.args = list(family="binomial"),se=FALSE)
+
+projects_glm
+```
+
+Q5: Are people working harder tend to leave the company?
+```{r}
+monthly_hours <- hr_analytics%>%
+  ggplot(aes(x=left,y=average_montly_hours))+geom_jitter(aes(color=left))
+
+monthly_hours
+
+monthly_hours_glm <- hr_analytics2%>%
+  ggplot(aes(x=average_montly_hours,y=left))+geom_point()+stat_smooth(method="glm",method.args = list(family="binomial"),se=FALSE)
+
+monthly_hours_glm
+```
+
+Q6: is daily hours in office an factor for people's decision of leaving?
+
+```{r}
+office_hours <- hr_analytics%>%
+  ggplot(aes(x=left,y=time_spend_company))+geom_jitter(aes(color=left))
+
+office_hours_glm <- hr_analytics2%>%
+  ggplot(aes(x=time_spend_company,y=left))+geom_point()+stat_smooth(method = "glm",method.args = list(family="binomial"),se=FALSE)
+
+office_hours
+office_hours_glm
+```
+
+A more comprehensive graph to take multiple factors into consideration:
+The graph takes two categorical factors: salary and promotion_past_5years
+and another two continuous factors: satisfaction_level and last_evaluation into consideration and uses point color to indicate if employees left or not
+
+```{r}
+comprehensive_graph <- hr_analytics%>%
+  ggplot(aes(x=satisfaction_level,y=last_evaluation))+geom_point(aes(color=left))+facet_grid(salary~promotion_last_5years)
+
+comprehensive_graph
+```
+
+The Last Important Question: can we predict if an employee is leaving?
+
+Before building the model, there are some pre-processing needs to be done. The average_monthly_hours and time_spend_company has a much larger magnitude than ano other numerical variables and thus they need to be scaled.
+
+```{r}
+hr_analytics2 <- hr_analytics2%>%
+  mutate(left=if_else(left==1,"Yes","No"),
+         average_montly_hours=scale(average_montly_hours),
+         time_spend_company=scale(time_spend_company),
+         number_project=scale(number_project))
+```
+
+
+```{r}
+head(hr_analytics2)
+```
+
+
+Now start the model building process with h2o
+```{r}
+suppressWarnings(library(h2o,quietly = TRUE))
+
+h2o.init(nthreads = 6,max_mem_size = "30g",strict_version_check = FALSE)
+
+hr_processed <- read.csv("HR Analytics.csv",header=TRUE)
+hr_h2o <- as.h2o(hr_processed)
+
+hr_h2o$left <- as.factor(hr_h2o$left)
+hr_h2o$sales <- as.factor(hr_h2o$sales)
+hr_h2o$salary <- as.factor(hr_h2o$salary)
+```
+
+Split the data set for testing:
+
+```{r}
+train_test_splits <- h2o.splitFrame(hr_h2o,ratios = 0.75)
+
+hr_train <- train_test_splits[[1]]
+hr_test <- train_test_splits[[2]]
+
+y <- "left"
+
+x <- setdiff(names(hr_h2o),y)
+```
+
+Start with first model: the generalized linear model
+
+```{r}
+suppressWarnings(hr_glm <- h2o.glm(x=x,y=y,training_frame = hr_train,nfolds = 5,family = "binomial",standardize = FALSE,balance_classes = TRUE))
+
+h2o.performance(hr_glm)
+
+h2o.performance(hr_glm,hr_test)
+```
+
+The GLM model gives us 22.4% of errors, which is not quite good.
+
+Move on to random forest model
+
+```{r}
+suppressWarnings(hr_rf <- h2o.randomForest(x=x,y=y,hr_train,nfolds = 10,score_tree_interval = 5,ntrees = 500,max_depth = 40,balance_classes = TRUE,min_rows = 2,stopping_tolerance = 0.001,mtries = 3,sample_rate = 0.7,seed = 3333))
+
+h2o.performance(hr_rf)
+
+h2o.performance(hr_rf,hr_test)
+```
+
+A significant improvement has been made with random forest and the error rate on test dataset is only 1%!!!!
+
+Create another model using gbm method
+
+```{r}
+hr_gbm <- h2o.gbm(x=x,y=y,training_frame = hr_train,ntrees = 500,nfolds = 5,balance_classes = TRUE,max_depth = 30,min_rows = 2,seed = 4444,learn_rate = 0.001,sample_rate = 0.7,col_sample_rate = 0.7)
+
+h2o.performance(hr_gbm)
+
+h2o.performance(hr_gbm,hr_test)
+```
+
+Gradient Boosting Machine has achieved an accuracy of 0.9% which is the current best.
+
+But another question needs to be answered, which variables are important with regards to the response?
+
+```{r}
+h2o.varimp_plot(hr_rf)
+h2o.varimp_plot(hr_gbm)
+
+```
+
+
+
+
+
+
+
+
+
+
+
